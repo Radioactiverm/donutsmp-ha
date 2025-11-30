@@ -32,40 +32,42 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
     username = data["username"].strip()
     raw_api_key = data["api_key"].strip()
 
+    # CORRECT HEADER FOR DONUT SMP API AUTH!
     headers = {
-        "X-API-Key": raw_api_key
+        "Authorization": f"Bearer {raw_api_key}"
     }
 
     test_url = API_LOOKUP_URL.format(username)
     session = aiohttp_client.async_get_clientsession(hass)
 
+    _LOGGER.debug("Testing lookup: url=%s headers=%s", test_url, headers)
+
     try:
         async with session.get(test_url, headers=headers, timeout=10) as response:
+            _LOGGER.debug("Response status: %s", response.status)
             if response.status == 404:
                 _LOGGER.warning("User not found: %s", username)
                 raise InvalidAuth("user_not_found")
             elif response.status == 401:
-                _LOGGER.warning("Invalid API key for user: %s", username)
+                _LOGGER.warning("Invalid API key for auth request")
                 raise InvalidAuth("invalid_api_key")
             response.raise_for_status()
             api_data = await response.json()
-            if not api_data or not api_data.get("uuid"):
+            if not api_data or not api_data.get("result"):
                 raise InvalidAuth("user_not_found")
     except InvalidAuth:
-        # Bubble up authentication errors correctly for config flow UI
         raise
     except Exception as err:
         _LOGGER.error("Error connecting to API: %s", err)
         raise CannotConnect from err
 
-    # Return info that you want to store in the config entry.
     return {
         "title": f"Donut SMP: {username}",
         "username": username,
         "api_key": raw_api_key,
-        "uuid": api_data.get("uuid", "unknown"),
         "lookup_url": test_url,
         "stats_url": API_STATS_URL.format(username),
+        "uuid": api_data.get("result", {}).get("uuid", "unknown"),
     }
 
 
@@ -86,7 +88,6 @@ class DonutsmphaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth as auth_err:
-                # Show specific error if provided
                 err_str = getattr(auth_err, 'args', [None])[0]
                 if err_str == "invalid_api_key":
                     errors["base"] = "invalid_auth"
