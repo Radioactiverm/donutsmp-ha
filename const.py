@@ -1,6 +1,6 @@
 """Constants for the Donut SMP integration."""
 
-DOMAIN = "donutsmp"
+DOMAIN = "donutsmpha"
 CONF_USERNAME = "username"
 CONF_API_KEY = "api_key"
 
