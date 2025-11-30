@@ -1,72 +1,94 @@
 """DataUpdateCoordinator for Donut SMP."""
 from __future__ import annotations
 
-import logging
-import aiohttp
 from datetime import timedelta
+import logging
+import json
+from typing import Any
 
+import aiohttp
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, API_STATS_URL, API_LOOKUP_URL, UPDATE_INTERVAL_SECONDS, CONF_USERNAME, CONF_API_KEY
+from .const import API_STATS_URL, API_LOOKUP_URL, DOMAIN, UPDATE_INTERVAL_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
-class DonutSMPCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Donut SMP data."""
+class DonutSMPDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator to fetch data from the Donut SMP API."""
 
-    def __init__(self, hass: HomeAssistant, entry):
-        """Initialize."""
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize my coordinator."""
+        self.entry = entry
+        self.username = entry.data["username"]
+        self.api_key = entry.data.get("api_key")
+        self.uuid = None # Will be set during the first successful update
+
         super().__init__(
             hass,
             _LOGGER,
+            # Name of your custom component (used for logging)
             name=DOMAIN,
+            # Polling interval is defined in const.py
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
-        self.entry = entry
-        self.username = entry.data[CONF_USERNAME]
-        self.api_key = entry.data[CONF_API_KEY]
-        self.session = aiohttp.ClientSession()
 
-    async def _async_update_data(self):
-        """Fetch data from API."""
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data from API endpoint."""
+        data = {}
+        
+        headers = {}
+        if self.api_key and self.api_key.lower() != "none":
+            # Using X-API-Key header based on troubleshooting
+            headers["X-API-Key"] = self.api_key
+        
         stats_url = API_STATS_URL.format(self.username)
         lookup_url = API_LOOKUP_URL.format(self.username)
-        
-        headers = {"User-Agent": "Home Assistant DonutSMP Integration"}
-        if self.api_key and self.api_key.lower() != "none":
-            headers["Authorization"] = self.api_key
-
-        data = {}
 
         try:
-            # 1. Fetch Stats
-            async with self.session.get(stats_url, headers=headers) as resp:
-                if resp.status != 200:
-                    raise UpdateFailed(f"Error fetching stats: {resp.status}")
-                stats_json = await resp.json()
+            async with aiohttp.ClientSession(headers=headers) as session:
                 
-                if stats_json.get("status") == 200 and "result" in stats_json:
-                    data.update(stats_json["result"])
-                else:
-                    _LOGGER.warning("Failed to fetch stats for %s: %s", self.username, stats_json)
+                # 1. Fetch Stats Data
+                async with session.get(stats_url) as stats_response:
+                    stats_response.raise_for_status()
+                    stats_data = await stats_response.json()
+                    
+                    if not stats_data:
+                        raise UpdateFailed(f"Stats API returned empty data for {self.username}")
+                    
+                    data.update(stats_data)
+                
+                # 2. Fetch Lookup Data (for UUID and display name consistency)
+                async with session.get(lookup_url) as lookup_response:
+                    lookup_response.raise_for_status()
+                    lookup_data = await lookup_response.json()
 
-            # 2. Fetch Lookup (Location/Rank)
-            async with self.session.get(lookup_url, headers=headers) as resp:
-                if resp.status != 200:
-                    raise UpdateFailed(f"Error fetching lookup: {resp.status}")
-                lookup_json = await resp.json()
+                    if not lookup_data or not lookup_data.get("uuid"):
+                        raise UpdateFailed(f"Lookup API could not find UUID for {self.username}")
+                        
+                    data.update(lookup_data)
+                    self.uuid = lookup_data.get("uuid")
+
+                _LOGGER.debug("Successfully fetched data for %s: %s", self.username, json.dumps(data))
                 
-                if lookup_json.get("status") == 200 and "result" in lookup_json:
-                    data.update(lookup_json["result"])
-                else:
-                    _LOGGER.warning("Failed to fetch lookup for %s: %s", self.username, lookup_json)
+                return data
+
+        except aiohttp.ClientResponseError as err:
+            if err.status == 404:
+                # User not found or endpoint not found
+                raise UpdateFailed(f"Resource not found (404) for user {self.username}. Check username/endpoint: {err}")
+            if err.status == 401:
+                # Authentication failed
+                raise UpdateFailed(f"API Key Unauthorized (401). Check API key: {err}")
             
-            return data
-
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"Error communicating with API: {err}")
+            _LOGGER.error("API Error: %s for user %s", err, self.username)
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
+            
+        except aiohttp.ClientConnectorError as err:
+            _LOGGER.error("Connection Error: %s", err)
+            raise UpdateFailed(f"Connection failed: {err}") from err
+        except Exception as err:
+            _LOGGER.exception("An unexpected error occurred during data update")
+            raise UpdateFailed(f"An unexpected error occurred: {err}") from err
