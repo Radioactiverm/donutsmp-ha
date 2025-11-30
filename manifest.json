@@ -1,0 +1,11 @@
+{
+  "domain": "donutsmp",
+  "name": "Donut SMP",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/Radioactiverm/donutsmp-ha",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Radioactiverm/donutsmp-ha/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
