@@ -6,6 +6,6 @@
   "documentation": "https://github.com/Radioactiverm/donutsmpha",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/Radioactiverm/donutsmpha/issues",
-  "requirements": [],
+  "requirements": ["aiohttp"],
   "version": "1.0.0"
 }
