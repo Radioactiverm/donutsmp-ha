@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Donut SMP User",
+        "description": "Enter the details of the player you want to track.",
+        "data": {
+          "username": "Minecraft Username",
+          "api_key": "API Key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid Authentication",
+      "unknown": "Unexpected error",
+      "user_not_found": "User not found or API error"
+    },
+    "abort": {
+      "already_configured": "This user is already configured"
+    }
+  }
+}
